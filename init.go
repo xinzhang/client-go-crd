@@ -22,8 +22,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -37,6 +38,7 @@ import (
 func main() {
 	var kubeconfig *string
 	if home := homeDir(); home != "" {
+		fmt.Println(filepath.Join(home, ".kube", "config"))
 		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
 	} else {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
@@ -54,33 +56,14 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	for {
-		pods, err := clientset.CoreV1().Pods("").List(metav1.ListOptions{})
-		if err != nil {
-			panic(err.Error())
-		}
-		fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
 
-		// Examples for error handling:
-		// - Use helper functions like e.g. errors.IsNotFound()
-		// - And/or cast to StatusError and use its properties like e.g. ErrStatus.Message
-		namespace := "sca-myradio-api"
-		pod := "myradio-api-master-6bb7d68cf-hpmrj"
-		_, err = clientset.CoreV1().Pods(namespace).Get(pod, metav1.GetOptions{})
+	//namespace := "sca-myradio-api"
+	//pod := "myradio-api-master-85c7f8f757-hs7sq"
+	//pod := "my-elk-logstash-0"
+	queryPods(clientset, "", "")
 
-		if errors.IsNotFound(err) {
-			fmt.Printf("Pod %s in namespace %s not found\n", pod, namespace)
-		} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
-			fmt.Printf("Error getting pod %s in namespace %s: %v\n",
-				pod, namespace, statusError.ErrStatus.Message)
-		} else if err != nil {
-			panic(err.Error())
-		} else {
-			fmt.Printf("Found pod %s in namespace %s\n", pod, namespace)
-		}
-
-		time.Sleep(10 * time.Second)
-	}
+	//createDeployment(clientset)
+	//deleteDeployment(clientset)
 }
 
 func homeDir() string {
@@ -89,3 +72,100 @@ func homeDir() string {
 	}
 	return os.Getenv("USERPROFILE") // windows
 }
+
+func queryPods(clientset *kubernetes.Clientset, namespace, pod string) {
+	pods, err := clientset.CoreV1().Pods("").List(metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
+
+	ns := "default"
+	if namespace != "" {
+		ns = namespace
+	}
+
+	if pod == "" {
+		return
+	}
+
+	// Examples for error handling:
+	// - Use helper functions like e.g. errors.IsNotFound()
+	// - And/or cast to StatusError and use its properties like e.g. ErrStatus.Message
+	_, err = clientset.CoreV1().Pods(ns).Get(pod, metav1.GetOptions{})
+
+	if errors.IsNotFound(err) {
+		fmt.Printf("Pod %s in namespace %s not found\n", pod, namespace)
+	} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
+		fmt.Printf("Error getting pod %s in namespace %s: %v\n",
+			pod, namespace, statusError.ErrStatus.Message)
+	} else if err != nil {
+		panic(err.Error())
+	} else {
+		fmt.Printf("Found pod %s in namespace %s\n", pod, namespace)
+	}
+}
+
+func createDeployment(clientset *kubernetes.Clientset) {
+	deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
+
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "demo-deployment",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(2),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": "demo",
+				},
+			},
+			Template: apiv1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app": "demo",
+					},
+				},
+				Spec: apiv1.PodSpec{
+					Containers: []apiv1.Container{
+						{
+							Name:  "web",
+							Image: "nginx:1.12",
+							Ports: []apiv1.ContainerPort{
+								{
+									Name:          "http",
+									Protocol:      apiv1.ProtocolTCP,
+									ContainerPort: 80,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Create Deployment
+	fmt.Println("Creating deployment...")
+	result, err := deploymentsClient.Create(deployment)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Created deployment %q.\n", result.GetObjectMeta().GetName())
+}
+
+func deleteDeployment(clientset *kubernetes.Clientset) {
+	deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
+
+	fmt.Println("Deleting deployment...")
+	deletePolicy := metav1.DeletePropagationForeground
+	if err := deploymentsClient.Delete("demo-deployment", &metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,
+	}); err != nil {
+		panic(err)
+	}
+	fmt.Println("Deleted deployment.")
+}
+
+func int32Ptr(i int32) *int32 { return &i }
