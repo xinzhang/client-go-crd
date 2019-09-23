@@ -57,10 +57,7 @@ func main() {
 		panic(err.Error())
 	}
 
-	//namespace := "sca-myradio-api"
-	//pod := "myradio-api-master-85c7f8f757-hs7sq"
-	//pod := "my-elk-logstash-0"
-	queryPods(clientset, "", "")
+	queryCronjob(clientset, "sca-podcastone-api", "omny-sync")
 
 	//createDeployment(clientset)
 	//deleteDeployment(clientset)
@@ -166,6 +163,31 @@ func deleteDeployment(clientset *kubernetes.Clientset) {
 		panic(err)
 	}
 	fmt.Println("Deleted deployment.")
+}
+
+func queryCronjob(clientset *kubernetes.Clientset, namespace string, cronjob string) {
+	cronjobs, err := clientset.BatchV1beta1().CronJobs("").List(metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Printf("There are %d crojobs in the cluster\n", len(cronjobs.Items))
+
+	if cronjob == "" {
+		return
+	}
+
+	_, err = clientset.BatchV1beta1().CronJobs(namespace).Get(cronjob, metav1.GetOptions{})
+
+	if errors.IsNotFound(err) {
+		fmt.Printf("Cronjob %s in namespace %s not found\n", cronjob, namespace)
+	} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
+		fmt.Printf("Error getting cronjob %s in namespace %s: %v\n", cronjob, namespace, statusError.ErrStatus.Message)
+	} else if err != nil {
+		panic(err.Error())
+	}
+
+	fmt.Printf("Found cronjob %s in namespace %s\n", cronjob, namespace)
+	//fmt.Printf(string(item.Status.LastScheduleTime))
 }
 
 func int32Ptr(i int32) *int32 { return &i }
